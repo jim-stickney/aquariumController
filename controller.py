@@ -1,3 +1,4 @@
+#!/usr/bin/python
 import RPi.GPIO as GPIO ## Import GPIO library
 import time
 import threading
@@ -7,6 +8,7 @@ from dateutil import parser
 import datetime
 
 import os
+import smtplib
 
 
 class ACChannel:
@@ -31,11 +33,8 @@ class ACChannel:
         self.plugStr = "plug %d" % channel 
 
     def loadConfig(self):
-        print self.plugStr
 
         self.mode = config.get(self.plugStr, "mode")
-
-        print self.mode
         
         if self.mode == "daily timer":
             self.onTime = parser.parse(config.get(self.plugStr, "onTime"))
@@ -103,6 +102,28 @@ def timerLoop():
 
         time.sleep(0.1)
 
+class Email:
+
+    def __init__(self):
+        
+        email = smtplib.SMTP(config.get("email", "server"),
+                             config.get("email", "port")
+                             )
+        email.starttls()
+
+        email.login(config.get("email", "username"),
+                    config.get("email", "password")
+                    )
+
+        self.email = email
+
+    def send(self, subject, message):
+        subject = "Subject: " + subject
+        self.email.sendmail(config.get("email", "username"),
+                            config.get("email", "sendaddress"),
+                            "\r\n".join([subject, "", msg])
+                            )
+
 
 
 #Set up the GPIO for the controller
@@ -115,6 +136,7 @@ GPIO.setup(CLK, GPIO.OUT) ## Setup GPIO Pin 27 to OUT
 
 config = ConfigParser.ConfigParser()
 
+
 # Create the ACChannel list
 acChannels = [ACChannel(iii) for iii in range(8)]
 
@@ -122,6 +144,17 @@ acChannels = [ACChannel(iii) for iii in range(8)]
 configThread = threading.Thread(target=configLoader)
 configThread.daemon = True
 configThread.start()
+
+#Sleep for a moment so te config can be read for the first time
+time.sleep(0.01)
+
+#Connect to the email server
+email = Email()
+subject = "Starting aquarimum controller"
+msg = "The controller is starting at: %s" %  \
+      str(datetime.datetime.now())
+
+email.send(subject, msg)
 
 # Start the ACChanel controller thread 
 timerThread = threading.Thread(target=timerLoop)
@@ -131,8 +164,6 @@ timerThread.start()
 try:
     while True:
         time.sleep(10)
-
         
 except:
-    print "exiting!"
     GPIO.cleanup()
