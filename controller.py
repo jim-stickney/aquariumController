@@ -10,6 +10,9 @@ import datetime
 import os
 import smtplib
 
+import sys
+import signal
+
 
 class ACChannel:
     """
@@ -57,7 +60,7 @@ def configLoader():
         try:
             st_mtime = os.stat("/home/jims/src/controller/config.ini").st_mtime
             if st_mtime != mtime:
-                print "Config File Changed"
+                # print "Config File Changed"
                 mtime = st_mtime
                 config.read("/home/jims/src/controller/config.ini")
 
@@ -121,8 +124,22 @@ class Email:
         subject = "Subject: " + subject
         self.email.sendmail(config.get("email", "username"),
                             config.get("email", "sendaddress"),
-                            "\r\n".join([subject, "", msg])
+                            "\r\n".join([subject, "", message])
                             )
+
+    def start(self):
+        subject = "Starting aquarimum controller"
+        msg = "The controller is starting at: %s" %  \
+              str(datetime.datetime.now())
+
+        self.send(subject, msg)
+
+    def stop(self):
+        subject = "Stopping aquarimum controller"
+        msg = "The controller is stopping at: %s" %  \
+              str(datetime.datetime.now())
+
+        self.send(subject, msg)
 
 
 
@@ -150,20 +167,18 @@ time.sleep(0.01)
 
 #Connect to the email server
 email = Email()
-subject = "Starting aquarimum controller"
-msg = "The controller is starting at: %s" %  \
-      str(datetime.datetime.now())
-
-email.send(subject, msg)
-
 # Start the ACChanel controller thread 
 timerThread = threading.Thread(target=timerLoop)
 timerThread.daemon = True
 timerThread.start()
 
-try:
-    while True:
-        time.sleep(10)
-        
-except:
+email.start()
+
+def signal_term_handler(signal, frame):
+    email.stop()
     GPIO.cleanup()
+    sys.exit(0)
+ 
+signal.signal(signal.SIGINT, signal_term_handler)
+
+signal.pause()

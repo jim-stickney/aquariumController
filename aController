@@ -24,6 +24,12 @@ case "$1" in
   stop)
     log_begin_msg "Stopping the aquarium controller"
     killproc /home/jims/src/controller/controller.py
+    X=`ps aux | grep 'controller.py' | grep 'python' |  grep -v grep`
+    X=`echo $X | awk {'print $2'}`
+    if [ $X ] 
+        then
+            kill -2 $X
+    fi 
     log_end_msg $?
     exit 0
     ;;
