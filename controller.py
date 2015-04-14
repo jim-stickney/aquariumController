@@ -13,6 +13,8 @@ import smtplib
 import sys
 import signal
 
+import netrc
+
 
 class ACChannel:
     """
@@ -108,21 +110,28 @@ def timerLoop():
 class Email:
 
     def __init__(self):
+
+        passwds = netrc.netrc()
+        host = config.get("email", "server")
+        port = config.get("email", "port")
+        username, acnt, password = passwds.authenticators(host)
+
         
-        email = smtplib.SMTP(config.get("email", "server"),
-                             config.get("email", "port")
+        email = smtplib.SMTP(host,
+                             port
                              )
         email.starttls()
 
-        email.login(config.get("email", "username"),
-                    config.get("email", "password")
+        email.login(username,
+                    password
                     )
 
+        self.username = username
         self.email = email
 
     def send(self, subject, message):
         subject = "Subject: " + subject
-        self.email.sendmail(config.get("email", "username"),
+        self.email.sendmail(self.username,
                             config.get("email", "sendaddress"),
                             "\r\n".join([subject, "", message])
                             )
