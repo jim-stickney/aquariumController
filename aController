@@ -35,6 +35,7 @@ case "$1" in
     ;;
   restart) log_daemon_msg "Restarting the aqarium controller" "aController" 
     $0 stop
+    sleep 0.1
     $0 start
     ;;
   *)
