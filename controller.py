@@ -111,7 +111,7 @@ class Email:
 
     def __init__(self):
 
-        passwds = netrc.netrc()
+        passwds = netrc.netrc('/root/.netrc')
         host = config.get("email", "server")
         port = config.get("email", "port")
         username, acnt, password = passwds.authenticators(host)
