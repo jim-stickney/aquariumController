@@ -1,5 +1,6 @@
 #!/usr/bin/python
-import RPi.GPIO as GPIO ## Import GPIO library
+
+from MCP230xx import MCP230XX
 import time
 import threading
 import ConfigParser
@@ -89,33 +90,23 @@ def timerLoop():
         if data != ACState:
             ACState = data
             ACSetTime = now
-            for iii in range(8):
+            for iii in range(15):
 
-                if data>>(7-iii) & 1:
+                if data>>iii & 1:
                     state1 = False
                 else:
                     state1 = True
-                GPIO.output(DSA1, state1) 
-
-                if data>>(15-iii) & 1:
-                    state2 = False
-                else:
-                    state2 = True
-                GPIO.output(DSA2, state2) 
-
-                GPIO.output(CLK, True) 
-                GPIO.output(CLK, False) 
+                acPins.output(iii, state1) 
 
         if now - ACSetTime > refreshTime:
             ACState = -1
 
-        #switch = 0
-        #SWITCHES = [SWITCH0, SWITCH1, SWITCH2, SWITCH3]
-        #for kkk in range(4):
-        #    switch += 2**kkk * (1 - GPIO.input(SWITCHES[kkk]))
-        #print switch 
-#
-#        time.sleep(0.1)
+        switch = 15 
+        for kkk in range(4):
+            switch -= gpio.input(kkk) 
+        print switch 
+
+        time.sleep(0.1)
 
 class Email:
 
@@ -162,25 +153,14 @@ class Email:
 
 
 
-#Set up the GPIO for the controller
-DSA1 = 17
-DSA2 = 27
-CLK = 22
+#Set up the two MCP23017's
+acPins = MCP230XX(busnum = 1, address = 0x20, num_gpios = 16)
+for iii in range(16):
+    acPins.config(iii, 0)
 
-SWITCH0 = 12
-SWITCH1 = 16
-SWITCH2 = 20 
-SWITCH3 = 21
-
-GPIO.setmode(GPIO.BCM) ## Use board pin numbering
-GPIO.setup(DSA1, GPIO.OUT) ## Setup GPIO Pin 17 to OUT
-GPIO.setup(DSA2, GPIO.OUT) ## Setup GPIO Pin 17 to OUT
-GPIO.setup(CLK, GPIO.OUT) ## Setup GPIO Pin 27 to OUT
-
-GPIO.setup(SWITCH0, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup(SWITCH1, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup(SWITCH2, GPIO.IN, pull_up_down=GPIO.PUD_UP)
-GPIO.setup(SWITCH3, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+gpio = MCP230XX(busnum = 1, address = 0x21, num_gpios = 16)
+for iii in range(4):
+    gpio.pullup(iii, 1)
 
 config = ConfigParser.ConfigParser()
 
@@ -207,7 +187,6 @@ email.start()
 
 def signal_term_handler(signal, frame):
     email.stop()
-    GPIO.cleanup()
     sys.exit(0)
  
 signal.signal(signal.SIGINT, signal_term_handler)
