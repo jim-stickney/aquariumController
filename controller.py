@@ -35,7 +35,7 @@ class ACChannel:
 
     def __init__(self, channel):
         self.channel = channel
-        self.plugStr = "plug %d" % channel 
+        self.plugStr = "ACChannel %d" % channel 
 
     def loadConfig(self):
 
@@ -76,13 +76,13 @@ def configLoader():
 
 def timerLoop():
     ACState = -1 
-    refreshTime = datetime.timedelta(0, 5*60, 0)
+    refreshTime = datetime.timedelta(0, 5, 0)
     while True:
         
         data = 0 
         now = datetime.datetime.now()
 
-        for jjj in range(8):
+        for jjj in range(16):
             if acChannels[jjj].getState(now):
                 data += 2**jjj
 
@@ -92,10 +92,16 @@ def timerLoop():
             for iii in range(8):
 
                 if data>>(7-iii) & 1:
-                    state = False
+                    state1 = False
                 else:
-                    state = True
-                GPIO.output(DSA, state) 
+                    state1 = True
+                GPIO.output(DSA1, state1) 
+
+                if data>>(15-iii) & 1:
+                    state2 = False
+                else:
+                    state2 = True
+                GPIO.output(DSA2, state2) 
 
                 GPIO.output(CLK, True) 
                 GPIO.output(CLK, False) 
@@ -103,9 +109,13 @@ def timerLoop():
         if now - ACSetTime > refreshTime:
             ACState = -1
 
-        
-
-        time.sleep(0.1)
+        #switch = 0
+        #SWITCHES = [SWITCH0, SWITCH1, SWITCH2, SWITCH3]
+        #for kkk in range(4):
+        #    switch += 2**kkk * (1 - GPIO.input(SWITCHES[kkk]))
+        #print switch 
+#
+#        time.sleep(0.1)
 
 class Email:
 
@@ -153,18 +163,30 @@ class Email:
 
 
 #Set up the GPIO for the controller
-DSA = 17
-CLK = 27
+DSA1 = 17
+DSA2 = 27
+CLK = 22
+
+SWITCH0 = 12
+SWITCH1 = 16
+SWITCH2 = 20 
+SWITCH3 = 21
 
 GPIO.setmode(GPIO.BCM) ## Use board pin numbering
-GPIO.setup(DSA, GPIO.OUT) ## Setup GPIO Pin 17 to OUT
+GPIO.setup(DSA1, GPIO.OUT) ## Setup GPIO Pin 17 to OUT
+GPIO.setup(DSA2, GPIO.OUT) ## Setup GPIO Pin 17 to OUT
 GPIO.setup(CLK, GPIO.OUT) ## Setup GPIO Pin 27 to OUT
+
+GPIO.setup(SWITCH0, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(SWITCH1, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(SWITCH2, GPIO.IN, pull_up_down=GPIO.PUD_UP)
+GPIO.setup(SWITCH3, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 
 config = ConfigParser.ConfigParser()
 
 
 # Create the ACChannel list
-acChannels = [ACChannel(iii) for iii in range(8)]
+acChannels = [ACChannel(iii) for iii in range(16)]
 
 # Start  the config file thread
 configThread = threading.Thread(target=configLoader)
