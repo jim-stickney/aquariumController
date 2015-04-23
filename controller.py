@@ -9,12 +9,12 @@ from dateutil import parser
 import datetime
 
 import os
-import smtplib
 
 import sys
 import signal
 
-import netrc
+
+from ReportSystem import EmailReport
 
 
 class ACChannel:
@@ -31,6 +31,8 @@ class ACChannel:
     plugStr = ""
     mode = "off"
 
+    currentState = -1
+
     onTime = 0
     offTime = 0
 
@@ -46,14 +48,21 @@ class ACChannel:
             self.onTime = parser.parse(config.get(self.plugStr, "onTime"))
             self.offTime = parser.parse(config.get(self.plugStr, "offTime"))
 
-    def getState(self, now):
+    def setState(self, now):
 
+        
         if self.mode == "off":
-            return False
+            state = False
         elif self.mode == "on":
-            return True
+            state = True
         elif self.mode == "daily timer":
-            return self.onTime < now and now < self.offTime
+            state = self.onTime < now and now < self.offTime
+
+        if state is not self.currentState:
+            print "Writting pin: ", self.channel
+            acPins.output(self.channel, state) 
+            self.currentState = state
+            
     
 
 def configLoader():
@@ -76,30 +85,15 @@ def configLoader():
 
 
 def timerLoop():
-    ACState = -1 
     refreshTime = datetime.timedelta(0, 5, 0)
     while True:
         
-        data = 0 
         now = datetime.datetime.now()
 
+        print "Setting acChannels: ", now
         for jjj in range(16):
-            if acChannels[jjj].getState(now):
-                data += 2**jjj
-
-        if data != ACState:
-            ACState = data
-            ACSetTime = now
-            for iii in range(15):
-
-                if data>>iii & 1:
-                    state1 = False
-                else:
-                    state1 = True
-                acPins.output(iii, state1) 
-
-        if now - ACSetTime > refreshTime:
-            ACState = -1
+            acChannels[jjj].setState(now)
+        print "Done"
 
         switch = 15 
         for kkk in range(4):
@@ -108,57 +102,15 @@ def timerLoop():
 
         time.sleep(0.1)
 
-class Email:
-
-    def __init__(self):
-
-        passwds = netrc.netrc('/root/.netrc')
-        host = config.get("email", "server")
-        port = config.get("email", "port")
-        username, acnt, password = passwds.authenticators(host)
-
-        
-        email = smtplib.SMTP(host,
-                             port
-                             )
-        email.starttls()
-
-        email.login(username,
-                    password
-                    )
-
-        self.username = username
-        self.email = email
-
-    def send(self, subject, message):
-        subject = "Subject: " + subject
-        self.email.sendmail(self.username,
-                            config.get("email", "sendaddress"),
-                            "\r\n".join([subject, "", message])
-                            )
-
-    def start(self):
-        subject = "Starting aquarimum controller"
-        msg = "The controller is starting at: %s" %  \
-              str(datetime.datetime.now())
-
-        self.send(subject, msg)
-
-    def stop(self):
-        subject = "Stopping aquarimum controller"
-        msg = "The controller is stopping at: %s" %  \
-              str(datetime.datetime.now())
-
-        self.send(subject, msg)
-
-
-
-#Set up the two MCP23017's
+# Set up the two MCP23017's
 acPins = MCP230XX(busnum = 1, address = 0x20, num_gpios = 16)
+# Set all of the pints in the first MCP to output
 for iii in range(16):
     acPins.config(iii, 0)
 
 gpio = MCP230XX(busnum = 1, address = 0x21, num_gpios = 16)
+# Set the first 4 pins on the second MCP to input
+# These are the switches
 for iii in range(4):
     gpio.pullup(iii, 1)
 
@@ -177,16 +129,17 @@ configThread.start()
 time.sleep(0.01)
 
 #Connect to the email server
-email = Email()
+report = EmailReport(config)
+
 # Start the ACChanel controller thread 
 timerThread = threading.Thread(target=timerLoop)
 timerThread.daemon = True
 timerThread.start()
 
-email.start()
+report.start()
 
 def signal_term_handler(signal, frame):
-    email.stop()
+    # report.stop()
     sys.exit(0)
  
 signal.signal(signal.SIGINT, signal_term_handler)
