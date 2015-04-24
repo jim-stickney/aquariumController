@@ -28,45 +28,29 @@ class EmailReport:
 
     email = None
 
-    loadingConfig = False
+    loadingConfig = True 
 
     def loadConfig(self, config):
     
         self.loadingConfig = True
     
-        if self.email is not None:
-            self.email.quit()
-
-        print "Getting passwords"
         passwds = netrc.netrc('/root/.netrc')
-        host = config.get("email", "server")
-        port = config.get("email", "port")
+        self.host = config.get("email", "server")
+        self.port = config.get("email", "port")
         self.sendTo = config.get("email", "sendaddress")
-        username, acnt, password = passwds.authenticators(host)
-        print "Done!"
-
-        
-        print "logig on to email"
-        email = smtplib.SMTP(host,
-                             port
-                             )
-        email.starttls()
-
-
-        email.login(username,
-                    password
-                    )
-        print "Done!"
+        self.username, acnt, self.password = passwds.authenticators(self.host)
 
         self.config = config
-        self.email = email
-        self.username = username
 
         reportTime = config.get("Report", "reportTime")
         if reportTime == "now":
-            self.nextReport = datetime.datetime.now()
+            self.lastReport = datetime.datetime.now()
         else:
-            self.nextReport = parser.parse(reportTime)
+            self.lastReport = parser.parse(reportTime)
+
+        delay = eval(self.config.get("Report", "reportPeriod"))
+        # self.delay = datetime.timedelta(hours=delay)
+        self.delay = datetime.timedelta(minutes = delay)
 
         self.loadingConfig = False
 
@@ -76,7 +60,7 @@ class EmailReport:
              files=[]):
 
         while self.loadingConfig:
-            time.sleep(0.1)
+            time.sleep(0.01)
 
         send_from = self.username
         send_to = self.sendTo
@@ -97,9 +81,22 @@ class EmailReport:
                             'attachment; filename="{0}"'.format(os.path.basename(f)))
             msg.attach(part)
 
-        self.email.sendmail(send_from, send_to, msg.as_string())
+        email = smtplib.SMTP(self.host,
+                             self.port
+                             )
+        email.starttls()
+        email.login(self.username,
+                    self.password
+                    )
+
+        email.sendmail(send_from, send_to, msg.as_string())
+
+        email.quit()
 
     def addReportData(self):
+
+        while self.loadingConfig:
+            time.sleep(0.01)
 
         self.temps.append(getTemps())
         self.switchStates.append(getSwitchState())
@@ -107,29 +104,29 @@ class EmailReport:
 
         now = datetime.datetime.now()
 
-        if datetime.datetime.now() > self.nextReport:
+        if datetime.datetime.now() > self.lastReport+self.delay:
             self.sendReport()
 
 
     def sendReport(self):
 
-        delay = eval(self.config.get("Report", "reportPeriod"))
-        self.nextReport += datetime.timedelta(hours=delay)
         now = datetime.datetime.now()
+        while self.lastReport < now:
+            self.lastReport += self.delay
 
         subject = "Status report: " + str(now) 
        
         temps = numpy.array(self.temps)
         avgTemps = temps.sum(0)/temps.shape[0]
 
-        # print avgTemps
 
         self.avgTimes.append(now)
         self.avgTemps.append(avgTemps)
 
         msg = ""
         msg += "The current time is " + str(now) + "\n"
-        msg += "The next report is scheduled for " + str(self.nextReport) + "\n"
+        msg += "The next report is scheduled for "  
+        msg += str(self.lastReport + self.delay) + "\n"
         for iii in range(len(avgTemps)):
             msg += "The average temperature at sensor %d is: %f \n" % (iii, 
                                                                        avgTemps[iii]
@@ -137,6 +134,7 @@ class EmailReport:
 
         msg += "The current switch state is: " + str(self.switchStates[-1]) + "\n"
 
+        pylab.clf()
         pylab.plot_date(self.times, self.temps, '-')
         pylab.xlabel('date')
         pylab.ylabel('Temperature (deg F)')

@@ -78,17 +78,18 @@ def configLoader():
             filename = 'config%d.ini' % cState 
             sState = cState 
             mtime = -1
-        try:
-            st_mtime = os.stat(path + filename).st_mtime
-            if st_mtime != mtime:
-                print "Loading config: " + filename
-                mtime = st_mtime
-                config.read(path + filename)
+        st_mtime = os.stat(path + filename).st_mtime
+        if st_mtime != mtime:
+            print "Loading config: " + filename
+            mtime = st_mtime
+            config.read(path + filename)
 
-                for acChannel in acChannels:
-                    acChannel.loadConfig()
-                report.loadConfig(config) 
+            for acChannel in acChannels:
+                acChannel.loadConfig()
+            report.loadConfig(config) 
                 
+        try:
+            pass
         except:
             print "Config error"
 
