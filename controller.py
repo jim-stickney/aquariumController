@@ -15,6 +15,7 @@ import signal
 
 
 from ReportSystem import EmailReport
+from Sensors import getTemps, getSwitchState
 
 
 class ACChannel:
@@ -59,48 +60,55 @@ class ACChannel:
             state = self.onTime < now and now < self.offTime
 
         if state is not self.currentState:
-            print "Writting pin: ", self.channel
             acPins.output(self.channel, state) 
             self.currentState = state
             
     
 
 def configLoader():
-    mtime = 0
+
+    mtime = -1 
+    sState = -1
+
+    path = "/home/jims/src/controller/config/"
 
     while True:
+        cState = getSwitchState()
+        if sState is not cState: 
+            filename = 'config%d.ini' % cState 
+            sState = cState 
+            mtime = -1
         try:
-            st_mtime = os.stat("/home/jims/src/controller/config.ini").st_mtime
+            st_mtime = os.stat(path + filename).st_mtime
             if st_mtime != mtime:
-                # print "Config File Changed"
+                print "Loading config: " + filename
                 mtime = st_mtime
-                config.read("/home/jims/src/controller/config.ini")
+                config.read(path + filename)
 
                 for acChannel in acChannels:
                     acChannel.loadConfig()
+                report.loadConfig(config) 
+                
         except:
-            pass
+            print "Config error"
 
         time.sleep(0.1)
 
 
 def timerLoop():
-    refreshTime = datetime.timedelta(0, 5, 0)
     while True:
         
         now = datetime.datetime.now()
-
-        print "Setting acChannels: ", now
         for jjj in range(16):
             acChannels[jjj].setState(now)
-        print "Done"
-
-        switch = 15 
-        for kkk in range(4):
-            switch -= gpio.input(kkk) 
-        print switch 
-
         time.sleep(0.1)
+
+
+def reportLoop():
+    while True:
+        report.addReportData()
+        time.sleep(eval(config.get("Report", "delay")))
+        
 
 # Set up the two MCP23017's
 acPins = MCP230XX(busnum = 1, address = 0x20, num_gpios = 16)
@@ -108,17 +116,13 @@ acPins = MCP230XX(busnum = 1, address = 0x20, num_gpios = 16)
 for iii in range(16):
     acPins.config(iii, 0)
 
-gpio = MCP230XX(busnum = 1, address = 0x21, num_gpios = 16)
-# Set the first 4 pins on the second MCP to input
-# These are the switches
-for iii in range(4):
-    gpio.pullup(iii, 1)
-
 config = ConfigParser.ConfigParser()
-
 
 # Create the ACChannel list
 acChannels = [ACChannel(iii) for iii in range(16)]
+
+#Connect to the email server
+report = EmailReport()
 
 # Start  the config file thread
 configThread = threading.Thread(target=configLoader)
@@ -128,18 +132,20 @@ configThread.start()
 #Sleep for a moment so te config can be read for the first time
 time.sleep(0.01)
 
-#Connect to the email server
-report = EmailReport(config)
-
 # Start the ACChanel controller thread 
 timerThread = threading.Thread(target=timerLoop)
 timerThread.daemon = True
 timerThread.start()
 
+# Start the ACChanel controller thread 
+reportThread = threading.Thread(target=reportLoop)
+reportThread.daemon = True
+reportThread.start()
+
 report.start()
 
 def signal_term_handler(signal, frame):
-    # report.stop()
+    report.stop()
     sys.exit(0)
  
 signal.signal(signal.SIGINT, signal_term_handler)
