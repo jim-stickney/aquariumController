@@ -18,13 +18,11 @@ from email import encoders
 
 from Sensors import getTemps, getSwitchState
 
-class EmailReport:
+import Pyro4
 
-    temps = []
-    switchStates = []
-    times = []
-    avgTemps = []
-    avgTimes = []
+data_logger = Pyro4.Proxy("PYRONAME:data.logger")
+
+class EmailReport:
 
     email = None
 
@@ -48,8 +46,12 @@ class EmailReport:
         else:
             self.lastReport = parser.parse(reportTime)
 
+        self.lastAverage = self.lastReport = datetime.datetime.now()
+        avgPeriod = eval(self.config.get("Report", "avgPeriod"))
+        self.avgPeriod = datetime.timedelta(minutes = avgPeriod)
+
         delay = eval(self.config.get("Report", "reportPeriod"))
-        # self.delay = datetime.timedelta(hours=delay)
+        # self.delay = datetime.timedelta(hours = delay)
         self.delay = datetime.timedelta(minutes = delay)
 
         self.loadingConfig = False
@@ -98,60 +100,87 @@ class EmailReport:
         while self.loadingConfig:
             time.sleep(0.01)
 
-        self.temps.append(getTemps())
-        self.switchStates.append(getSwitchState())
-        self.times.append(datetime.datetime.now())
+        datum = {}
+        datum['time'] = datetime.datetime.now()
+        datum['temps'] = getTemps()
+
+        data_logger.addDatum(datum)
 
         now = datetime.datetime.now()
 
-        if datetime.datetime.now() > self.lastReport+self.delay:
+        now = datetime.datetime.now()
+
+        while parser.parse(data_logger.getFirst('time')) < now - self.avgPeriod: 
+            data_logger.popFirst('time')
+            data_logger.popFirst('temps')
+
+        if now > self.lastAverage+self.avgPeriod:
+            print "Doing average"
+            data = data_logger.getData()
+
+            temps = numpy.array(data['temps'])
+            avgTemp = list(temps.sum(0)/temps.shape[0])
+            print "N = ", temps.shape[0]
+
+            datum = {'avgTimes':self.lastAverage, 'avgTemps':avgTemp}
+            data_logger.addDatum(datum)
+            
+            while self.lastAverage+self.avgPeriod < now:
+                self.lastAverage += self.avgPeriod
+
+        if now > self.lastReport+self.delay:
+            print "emailing report"
             self.sendReport()
 
 
     def sendReport(self):
 
         now = datetime.datetime.now()
-        while self.lastReport < now:
+        while self.lastReport+self.delay < now:
             self.lastReport += self.delay
 
         subject = "Status report: " + str(now) 
        
-        temps = numpy.array(self.temps)
-        avgTemps = temps.sum(0)/temps.shape[0]
-
-
-        self.avgTimes.append(now)
-        self.avgTemps.append(avgTemps)
-
+        temps = getTemps()
         msg = ""
         msg += "The current time is " + str(now) + "\n"
         msg += "The next report is scheduled for "  
         msg += str(self.lastReport + self.delay) + "\n"
-        for iii in range(len(avgTemps)):
-            msg += "The average temperature at sensor %d is: %f \n" % (iii, 
-                                                                       avgTemps[iii]
+        for iii in range(len(temps)):
+            msg += "The current temperature at sensor %d is: %f \n" % (iii, 
+                                                                       temps[iii] 
                                                                        )
+        ss = getSwitchState()
+        msg += "The current switch state is: " 
+        msg += str(ss) + "\n"
 
-        msg += "The current switch state is: " + str(self.switchStates[-1]) + "\n"
+
+        times = []
+        temps = []
+
+        data = data_logger.getData()
+
+        if 'avgTemps' in data.keys():
+            temps += data['avgTemps']
+            for t in data['avgTimes']:
+                times.append(parser.parse(t))
+
+        if 'temps' in data.keys():
+            temps += data['temps']
+            for t in data['time']:
+                times.append(parser.parse(t))
+
+
+        temps = numpy.array(temps)
+    
 
         pylab.clf()
-        pylab.plot_date(self.times, self.temps, '-')
+        pylab.plot_date(times, temps, '-')
         pylab.xlabel('date')
         pylab.ylabel('Temperature (deg F)')
         pylab.savefig('/tmp/tempPlot.png')
         
-        pylab.clf()
-        pylab.plot_date(self.avgTimes, self.avgTemps, '-')
-        pylab.xlabel('date')
-        pylab.ylabel('Dailey Average Temperature (deg F)')
-        pylab.savefig('/tmp/avgTempPlot.png')
-
-        self.send(subject, msg, ['/tmp/tempPlot.png', 
-                                 '/tmp/avgTempPlot.png'])
-
-        self.temps = []
-        self.times = []
-        self.swtichStates = []
+        self.send(subject, msg, ['/tmp/tempPlot.png', ])
 
     def start(self):
         subject = "Starting aquarimum controller"
