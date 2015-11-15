@@ -46,6 +46,10 @@ def hello():
     ax.set_xlabel("Time")
     ax.set_ylabel("Temperature (in deg F)")
 
+
+    fig1, ax1 = plt.subplots()
+    ax1.cla()
+
     nT = len(data['thermostatTime1'])
     thermostatTimes = [0]*(nT+1)
     thermostatState = numpy.zeros(nT+1)
@@ -56,8 +60,18 @@ def hello():
     thermostatTimes[-1] = datetime.datetime.now() 
     thermostatState[-1] = thermostatState[-2]
 
-    fig1, ax1 = plt.subplots()
-    ax1.cla()
+    ax1.plot_date(thermostatTimes, thermostatState, '-')
+
+    nT = len(data['thermostatTime15'])
+    thermostatTimes = [0]*(nT+1)
+    thermostatState = numpy.zeros(nT+1)
+    for iii in range(nT):
+        thermostatState[iii] = int(data['thermostatState15'][iii] )
+        thermostatTimes[iii] = parser.parse(data['thermostatTime15'][iii])
+
+    thermostatTimes[-1] = datetime.datetime.now() 
+    thermostatState[-1] = thermostatState[-2]
+
     ax1.plot_date(thermostatTimes, thermostatState, '-')
     ax1.set_xlabel("Time")
     ax1.set_ylabel("Thermostat State")

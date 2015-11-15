@@ -43,8 +43,8 @@ class ACChannel:
     onPin = 9
     filling = False
 
-    lowTemp = 75
-    highTemp = 77
+    onTemp = 75
+    offTemp = 77
     tempChannel = 0
     isOn = False 
 
@@ -64,8 +64,8 @@ class ACChannel:
             self._state_changed('filling', False, self.filling)
 
         if self.mode == "thermostat":
-            self.lowTemp = float(config.get(self.plugStr, "lowTemp"))
-            self.highTemp = float(config.get(self.plugStr, "highTemp"))
+            self.onTemp = float(config.get(self.plugStr, "lowTemp"))
+            self.offTemp = float(config.get(self.plugStr, "highTemp"))
             self.tempChannel = int(config.get(self.plugStr, "tempChannel"))
             self._state_changed('thermostat', False, self.isOn)
 
@@ -115,10 +115,16 @@ class ACChannel:
         elif self.mode == "thermostat":
             oldIsOn = self.isOn 
             temp =  getTemps()[self.tempChannel]
-            if temp < self.lowTemp:
-                self.isOn = True
-            if temp > self.highTemp and self.isOn == True:
-                self.isOn = False
+            if self.onTemp < self.offTemp:
+                if temp < self.onTemp:
+                    self.isOn = True
+                if temp > self.offTemp and self.isOn == True:
+                    self.isOn = False
+            else:
+                if temp > self.onTemp:
+                    self.isOn = True
+                if temp < self.offTemp and self.isOn == True:
+                    self.isOn = False
 
             if oldIsOn is not self.isOn:
                 self._state_changed('thermostat', oldIsOn, self.isOn)
@@ -183,15 +189,14 @@ nsThread.daemon = True
 nsThread.start()
 Pyro4.locateNS() # Block until nsThread has started up
 
+#Start the configParser
+config = ConfigParser.ConfigParser()
 
 # Set up the two MCP23017's
 acPins = MCP230XX(busnum = 1, address = 0x20, num_gpios = 16)
 # Set all of the pints in the first MCP to output
 for iii in range(16):
     acPins.config(iii, 0)
-
-#Start the configParser
-config = ConfigParser.ConfigParser()
 
 # Create the ACChannel list
 acChannels = [ACChannel(iii) for iii in range(16)]
