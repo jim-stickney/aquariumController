@@ -13,6 +13,10 @@ for iii in range(4):
 for iii in [8,9]:
     gpio.pullup(iii, 1)
 
+gpio.config(10, 0)
+gpio.config(11, 0)
+
+
 def getFloatState(pin):
     
     return gpio.input(pin)>>pin

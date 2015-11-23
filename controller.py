@@ -18,6 +18,7 @@ import subprocess
 
 from ReportSystem import EmailReport
 from Sensors import getTemps, getSwitchState, getFloatState, readTemps
+from Sensors import gpio as Pins2
 
 
 class ACChannel:
@@ -70,7 +71,6 @@ class ACChannel:
             self._state_changed('thermostat', False, self.isOn)
 
     def _state_changed(self, label, oldstate, state):
-        print "State changed" 
         print label
 
         data_logger = Pyro4.Proxy("PYRONAME:data.logger")
@@ -136,13 +136,18 @@ class ACChannel:
             state = False
 
         if state is not self.currentState:
-            acPins.output(self.channel, not(state))
-            self.currentState = state
+            if self.channel < 16:
+	        print "Change on channel ", self.channel
+                acPins.output(self.channel, not(state))
+            else:
+	        print "Change on channel ", self.channel - 6
+                Pins2.output(self.channel - 6, state)
+	    self.currentState = state
+
 
 
 def configLoader():
 
-    mtime = -1 
     sState = -1
 
     path = "/home/jims/src/controller/config/"
@@ -152,11 +157,9 @@ def configLoader():
         if sState is not cState: 
             filename = 'config%d.ini' % cState 
             sState = cState 
-            mtime = -1
-        st_mtime = os.stat(path + filename).st_mtime
-        if st_mtime != mtime:
             print "Loading config: " + filename
-            mtime = st_mtime
+
+            config.read(path + "config0.ini")
             config.read(path + filename)
 
             for acChannel in acChannels:
@@ -174,7 +177,7 @@ def configLoader():
 def timerLoop():
     while True:
         now = datetime.datetime.now()
-        for jjj in range(16):
+        for jjj in range(18):
             acChannels[jjj].setState(now)
         time.sleep(0.1)
 
@@ -194,12 +197,14 @@ config = ConfigParser.ConfigParser()
 
 # Set up the two MCP23017's
 acPins = MCP230XX(busnum = 1, address = 0x20, num_gpios = 16)
+
 # Set all of the pints in the first MCP to output
 for iii in range(16):
     acPins.config(iii, 0)
 
+
 # Create the ACChannel list
-acChannels = [ACChannel(iii) for iii in range(16)]
+acChannels = [ACChannel(iii) for iii in range(18)]
 
 #Connect to the email server
 report = EmailReport()

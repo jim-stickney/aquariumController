@@ -187,13 +187,13 @@ class EmailReport:
         msg = "The controller is starting at: %s" %  \
               str(datetime.datetime.now())
 
-        self.send(subject, msg)
+#         self.send(subject, msg)
 
     def stop(self):
         subject = "Stopping aquarimum controller"
         msg = "The controller is stopping at: %s" %  \
               str(datetime.datetime.now())
 
-        self.send(subject, msg)
+        # self.send(subject, msg)
 
 
