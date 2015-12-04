@@ -32,9 +32,10 @@ def getSwitchState():
 sensorIDs = {}
 sensorIDs['28-000006878783'] = 'A'
 sensorIDs['28-00000687bab0'] = 'B'
+sensorIDs['28-00000687fe59'] = 'C'
 
 delay = 10 
-tempData = [[0,0]]
+tempData = [[0,0,0]]
 def readTemps():
     while True:
         bus = '/sys/bus/w1/devices/'
@@ -55,11 +56,12 @@ def readTemps():
                 
                 Temps[sensorIDs[d]] = data*1.8 + 32.0
 
-        temps = [Temps['A'], Temps['B']]
+        temps = [Temps['A'], Temps['B'], Temps['C']]
         tempData[0] = temps
         time.sleep(delay)
 
 
 def getTemps():
+    print tempData[0]
     return tempData[0] 
 
