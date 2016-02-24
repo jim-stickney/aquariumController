@@ -6,6 +6,7 @@ import threading
 import time
 
 gpio = MCP230XX(busnum = 1, address = 0x21, num_gpios = 16)
+
 # Set the first 4 pins on the second MCP to input These are the switches
 for iii in range(4):
     gpio.pullup(iii, 1)
@@ -33,6 +34,7 @@ sensorIDs = {}
 sensorIDs['28-000006878783'] = 'A'
 sensorIDs['28-00000687bab0'] = 'B'
 sensorIDs['28-00000687fe59'] = 'C'
+sensorIDs['28-000006b13699'] = 'D'
 
 delay = 10 
 tempData = [[0,0,0]]
@@ -56,7 +58,7 @@ def readTemps():
                 
                 Temps[sensorIDs[d]] = data*1.8 + 32.0
 
-        temps = [Temps['A'], Temps['B'], Temps['C']]
+        temps = [Temps['A'], Temps['B'], Temps['C'], Temps['D']]
         tempData[0] = temps
         time.sleep(delay)
 
