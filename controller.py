@@ -1,24 +1,17 @@
 #!/usr/bin/python
 
-from MCP230xx import MCP230XX
 import time
-import threading
 import ConfigParser
 
 from dateutil import parser
 import datetime
 
 import os
-import Pyro4
 
 import sys
 import signal
 
-import subprocess
-
-from ReportSystem import EmailReport
-from Sensors import getTemps, getSwitchState, getFloatState, readTemps
-from Sensors import gpio as Pins2
+import smbus
 
 
 class ACChannel:
@@ -31,29 +24,31 @@ class ACChannel:
                     offTime every day.
     """
    
-    channel = 0
-    plugStr = ""
-    mode = "off"
+    def __init__(self, channel, io):
+        
+        self.io = io
 
-    currentState = -1
-
-    onTime = 0
-    offTime = 0
-
-    offPin = 8
-    onPin = 9
-    filling = False
-
-    onTemp = 75
-    offTemp = 77
-    tempChannel = 0
-    isOn = False 
-
-    def __init__(self, channel):
         self.channel = channel
         self.plugStr = "ACChannel %d" % channel 
 
-    def loadConfig(self):
+        self.mode = "off"
+
+        self.currentState = -1
+
+        self.onTime = 0
+        self.offTime = 0
+
+        self.offPin = 8
+        self.onPin = 9
+        self.filling = False
+
+        self.onTemp = 75
+        self.offTemp = 77
+        self.tempChannel = 0
+        self.isOn = False 
+
+
+    def loadConfig(self, config):
 
         self.mode = config.get(self.plugStr, "mode")
         
@@ -61,30 +56,13 @@ class ACChannel:
             self.onTime = parser.parse(config.get(self.plugStr, "onTime")).time()
             self.offTime = parser.parse(config.get(self.plugStr, "offTime")).time()
 
-        if self.mode == "topoff":
-            self._state_changed('filling', False, self.filling)
-
         if self.mode == "thermostat":
             self.onTemp = float(config.get(self.plugStr, "lowTemp"))
             self.offTemp = float(config.get(self.plugStr, "highTemp"))
             self.tempChannel = int(config.get(self.plugStr, "tempChannel"))
-            self._state_changed('thermostat', False, self.isOn)
 
-    def _state_changed(self, label, oldstate, state):
-        print label
+    def getState(self, now):
 
-        data_logger = Pyro4.Proxy("PYRONAME:data.logger")
-        datum = {} 
-        datum[label+'Time%d' % self.channel] = datetime.datetime.now()
-        datum[label+'State%d' % self.channel] = oldstate
-        data_logger.addDatum(datum)
-
-        datum[label+'State%d' % self.channel] = state
-        data_logger.addDatum(datum)
-
-    def setState(self, now):
-
-        
         if self.mode == "off":
             state = False
         elif self.mode == "on":
@@ -97,8 +75,8 @@ class ACChannel:
                 state = not( self.offTime < now < self.onTime ) 
 
         elif self.mode == "topoff":
-            on = getFloatState(self.onPin)
-            off = getFloatState(self.offPin)
+
+            off, on = self.io.getFloat()
 
             oldFilling = self.filling
 
@@ -107,14 +85,11 @@ class ACChannel:
             if on == 0 and off == 0:
                 self.filling = True
 
-            if oldFilling is not self.filling:
-                self._state_changed('filling', oldFilling, self.filling)
-
             state = self.filling
 
         elif self.mode == "thermostat":
             oldIsOn = self.isOn 
-            temp =  getTemps()[self.tempChannel]
+            temp =  io.getTemps()[self.tempChannel]
             if self.onTemp < self.offTemp:
                 if temp < self.onTemp:
                     self.isOn = True
@@ -126,132 +101,236 @@ class ACChannel:
                 if temp < self.offTemp and self.isOn == True:
                     self.isOn = False
 
-            if oldIsOn is not self.isOn:
-                self._state_changed('thermostat', oldIsOn, self.isOn)
-
             state = self.isOn
             
 
         else:
             state = False
 
-        if state is not self.currentState:
-            if self.channel < 16:
-	        print "Change on channel ", self.channel
-                acPins.output(self.channel, not(state))
-            else:
-	        print "Change on channel ", self.channel - 6
-                Pins2.output(self.channel - 6, state)
-	    self.currentState = state
+        if state:
+            return 1<<self.channel 
+        else:
+            return 0
 
 
+# The device addresses
+DEVICE0 = 0x20
+DEVICE1 = 0x21
 
-def configLoader():
+# Pin direction registers
+IODIRA = 0x00
+IODIRB = 0x01
 
-    sState = -1
+# Intput registers
+GPIOA = 0x12
+GPIOB = 0x13
 
-    path = "/home/jims/src/controller/config/"
+# Output registers
+OLATA = 0x14
+OLATB = 0x15
 
-    while True:
-        cState = getSwitchState()
-        if sState is not cState: 
-            filename = 'config%d.ini' % cState 
-            sState = cState 
-            print "Loading config: " + filename
-
-            config.read(path + "config0.ini")
-            config.read(path + filename)
-
-            for acChannel in acChannels:
-                acChannel.loadConfig()
-            report.loadConfig(config) 
-                
-        try:
-            pass
-        except:
-            print "Config error"
-
-        time.sleep(0.1)
+# The pull up registers
+GPPUA = 0x0C
+GPPUB = 0x0D
 
 
-def timerLoop():
-    while True:
+class ioPins: 
+
+    def __init__(self):
+        self.lastTempUpdate = datetime.datetime.now()
+        self.lastTemps = []
+
+    def setupPins(self):
+
+        # Device0 A all pins should be output
+        if bus.read_byte_data(DEVICE0, IODIRA) is not 0x00:
+            bus.write_byte_data(DEVICE0, IODIRA, 0x00)
+
+        # Device0 B all pins should be output
+        if bus.read_byte_data(DEVICE0, IODIRB) is not 0x00:
+            bus.write_byte_data(DEVICE0, IODIRB, 0x00)
+
+        # Device1 A first 4 pins should be input 
+        if bus.read_byte_data(DEVICE1, IODIRA) is not 0x0F:
+            bus.write_byte_data(DEVICE1, IODIRA, 0x0F)
+
+        # Device1 A first 4 pins should be pulled up 
+        if bus.read_byte_data(DEVICE1, IODIRA) is not 0x0F:
+            bus.write_byte_data(DEVICE1, GPPUA, 0x0F)
+
+
+        # Device1 B frist 2 pins should be pulled up 
+        if bus.read_byte_data(DEVICE1, IODIRB) is not 0x03:
+            bus.write_byte_data(DEVICE1, IODIRB, 0x03)
+
+        # Device1 B first 2 pins should be pulled up 
+        if bus.read_byte_data(DEVICE1, IODIRB) is not 0x03:
+            bus.write_byte_data(DEVICE1, GPPUB, 0x03)
+
+    def getSwitch(self):
+        S = bus.read_byte_data(DEVICE1, GPIOA)
+        S &= 15
+
+        return 15 - S
+
+    def getFloat(self):
+        F = bus.read_byte_data(DEVICE1, GPIOB)
+        F &= 3
+
+        off = (F & 1)
+        on = (F & 2) - 1
+
+        return off, on
+
+    def getTemps(self):
+
+        bus = '/sys/bus/w1/devices/'
+        devices = os.listdir(bus)
+
         now = datetime.datetime.now()
-        for jjj in range(18):
-            acChannels[jjj].setState(now)
-        time.sleep(0.1)
+        dT = datetime.timedelta(seconds=60) 
+        if (now - self.lastTempUpdate) > dT or len(self.lastTemps) == 0:
 
-def reportLoop():
-    while True:
-        report.addReportData()
-        time.sleep(eval(config.get("Report", "delay")))
-        
-# Start the pyro name server
-nsThread = threading.Thread(target=Pyro4.naming.startNSloop)
-nsThread.daemon = True
-nsThread.start()
-Pyro4.locateNS() # Block until nsThread has started up
+            temps = []
+            for d in devices:
+                if d[:2] == '28':
 
-#Start the configParser
-config = ConfigParser.ConfigParser()
+                    f = open(bus + d + '/w1_slave')
+                    data = f.readlines()
+                    f.close()
 
-# Set up the two MCP23017's
-acPins = MCP230XX(busnum = 1, address = 0x20, num_gpios = 16)
+                    data = data[1].split()[-1][2:]
+                    data = eval(data)/1000.0
+                    
+                    temps.append(data*1.8 + 32.0)
+            self.lastTemps = temps 
+            self.lastTempUpdate = now
+                
+        return self.lastTemps 
 
-# Set all of the pints in the first MCP to output
-for iii in range(16):
-    acPins.config(iii, 0)
+    def setPins(self, state):
 
+        stateA = sState & 255
+        stateB = (sState >> 8) & 255
+        stateC = ((sState >> 16) & 3) << 2
 
-# Create the ACChannel list
-acChannels = [ACChannel(iii) for iii in range(18)]
+        stateA = 255 - stateA
+        stateB = 255 - stateB
+        # stateC = 255 - stateC
 
-#Connect to the email server
-report = EmailReport()
-
-#Start the datalogger
-print "Starting the data logger"
-data_logger = subprocess.Popen(["/usr/bin/python",
-                                "/home/jims/src/controller/DataLogger.py"])
-
-#Start the temperature Reader
-tempThread = threading.Thread(target=readTemps)
-tempThread.daemon = True
-tempThread.start()
-
-time.sleep(4)
-
-# Start  the config file thread
-configThread = threading.Thread(target=configLoader)
-configThread.daemon = True
-configThread.start()
+        # print bin(stateA)
+        # print bin(stateB)
+        # print bin(stateC)
+        bus.write_byte_data(DEVICE0, OLATA, stateA)
+        bus.write_byte_data(DEVICE0, OLATB, stateB)
+        bus.write_byte_data(DEVICE1, OLATB, stateC)
 
 
-#Sleep for a moment so te config and temps can be read for the first time
-time.sleep(1)
+class configLoader():
 
-#Start the webServer 
-#web_server = subprocess.Popen(["/usr/bin/python",
-#                               "/home/jims/src/controller/webServer/webServer.py"])
+    def __init__(self, io, channels):
+        self.sState = -1
+        self.io = io
+        self.channels = channels
 
-# Start the ACChanel controller thread 
-timerThread = threading.Thread(target=timerLoop)
-timerThread.daemon = True
-timerThread.start()
+        self.path = "/home/jims/src/controller2/config/"
+       
 
-# Start the ACChanel controller thread 
-reportThread = threading.Thread(target=reportLoop)
-reportThread.daemon = True
-reportThread.start()
+    def checkConfig(self): 
+        cState = self.io.getSwitch() 
 
-report.start()
+        if self.sState is not cState: 
+            
+            config = ConfigParser.ConfigParser()
+            
+            filename = 'config%d.ini' % cState 
+            self.sState = cState 
 
-def signal_term_handler(signal, frame):
-    report.stop()
-    data_logger.terminate()
-    web_server.terminate()
-    sys.exit(0)
- 
-signal.signal(signal.SIGINT, signal_term_handler)
+            config.read(self.path + "config0.ini")
+            config.read(self.path + filename)
 
-signal.pause()
+            for acChannel in self.channels:
+                acChannel.loadConfig(config)
+
+
+class LogData:
+
+    def __init__(self, io):
+        dT = datetime.timedelta(minutes = 20)
+        self.lastUpdate = datetime.datetime.now() - dT
+        self.io = io
+
+        self.sState = -1
+        self.Switch = -1
+        self.Float = -1
+
+    def update(self, sState):
+
+        off, on = io.getFloat()
+        Float = off + 2*on
+
+        Switch = io.getSwitch()
+
+        now = datetime.datetime.now()
+        dT = datetime.timedelta(minutes=10)
+
+        A = now - self.lastUpdate > dT
+        B = sState != self.sState
+        C = Float != self.Float
+        D = Switch != self.Switch
+
+        if A or B or C or D:
+
+            self.sState = sState
+            self.Float = Float
+            self.Switch = Switch
+
+            self.lastUpdate = now
+            #Wirte to file
+            data = "%s\t" % now
+            temps = self.io.getTemps()
+            for temp in temps:
+                data += "%f\t" % temp
+
+            data += "%s," % format(sState >>  16, '02b')
+            data += "%s," % format((sState >> 8) & 255, '08b')
+            data += "%s\t" % format(sState & 255, '08b')
+
+
+            data += "%s\t" % format(Switch, '04b')
+            data += "%s" % format(Float, '02b')
+
+            print data
+
+            data += "\n"
+
+            with open('/home/jims/data.log', 'a') as F:
+                F.write(data)
+
+
+bus = smbus.SMBus(1)
+io = ioPins()
+
+channels = []
+for iii in range(18):
+    channels.append(ACChannel(iii, io))
+
+cLoad = configLoader(io, channels)
+
+logData = LogData(io)
+
+#Main Loop
+while True:
+    io.setupPins()
+
+    cLoad.checkConfig()
+
+    now = datetime.datetime.now()
+    sState = 0
+    for channel in channels:
+        sState += channel.getState(now)
+    io.setPins(sState)
+
+    logData.update(sState)
+
+    time.sleep(0.1)
